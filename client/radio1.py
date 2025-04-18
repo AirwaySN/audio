@@ -44,7 +44,17 @@ class MumbleRadioClient:
             reconnect=True
         )
         self.mumble.set_receive_sound(True)
+        self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_SOUNDRECEIVED, self.handle_incoming_audio)
         self.current_channel = None
+
+        # 添加音频输出流
+        self.output_stream = self.audio.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            output=True,
+            frames_per_buffer=self.CHUNK
+        )
         
 
     def convert_frequency(self, frequency):
@@ -101,6 +111,11 @@ class MumbleRadioClient:
                     print("停止说话")
             time.sleep(0.01)
 
+    def handle_incoming_audio(self, user, soundchunk):
+        """处理接收到的音频"""
+        if user["name"] != self.mumble.users.myself["name"]:  # 不播放自己的声音
+            self.output_stream.write(soundchunk.pcm)
+
     def run(self):
         """启动客户端"""
         try:
@@ -132,6 +147,9 @@ class MumbleRadioClient:
         if hasattr(self, 'stream'):
             self.stream.stop_stream()
             self.stream.close()
+        if hasattr(self, 'output_stream'):
+            self.output_stream.stop_stream()
+            self.output_stream.close()
         if hasattr(self, 'audio'):
             self.audio.terminate()
         if hasattr(self, 'mumble'):
