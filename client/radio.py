@@ -5,7 +5,7 @@ import time
 import keyboard
 import pyaudio
 import wave
-import numpy as np
+import numpy as np  # 确保numpy被导入
 import sys
 import functools
 
@@ -40,6 +40,10 @@ class MumbleRadioClient:
         self.is_talking = False
         self.on_ptt_change = None
         
+        # 添加设置支持
+        from settings import Settings
+        self.settings = Settings()
+        
         # 初始化音频设备
         self.audio = pyaudio.PyAudio()
         self.stream = self.audio.open(
@@ -47,14 +51,16 @@ class MumbleRadioClient:
             channels=self.CHANNELS,
             rate=self.RATE,
             input=True,
-            frames_per_buffer=self.CHUNK
+            frames_per_buffer=self.CHUNK,
+            input_device_index=self.settings.input_device_index
         )
         self.output_stream = self.audio.open(
             format=self.FORMAT,
             channels=self.CHANNELS,
             rate=self.RATE,
             output=True,
-            frames_per_buffer=self.CHUNK
+            frames_per_buffer=self.CHUNK,
+            output_device_index=self.settings.output_device_index
         )
 
         # 初始化 Mumble 客户端
@@ -68,6 +74,9 @@ class MumbleRadioClient:
         self.mumble.set_receive_sound(True)
         self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_SOUNDRECEIVED, self.handle_incoming_audio)
         self.current_channel = None
+        
+        # 初始应用音量设置
+        self.update_volumes()
         
         # 线程管理
         self.monitor_thread = None
@@ -113,11 +122,26 @@ class MumbleRadioClient:
                     print(f"频率监控错误: {e}")
             time.sleep(1)  # 增加检查间隔，减少错误日志
     
+    def update_volumes(self):
+        """更新麦克风和扬声器音量"""
+        try:
+            if self.mumble and self.mumble.connected:
+                # 麦克风音量 0-200% 映射到 0-2.0
+                self.mumble.sound_output.volume = self.settings.mic_volume / 100.0
+            if hasattr(self, 'output_stream'):
+                # 扬声器音量 0-200% 映射到音频数据缩放
+                volume_scale = self.settings.speaker_volume / 100.0
+                def volume_modifier(audio_data):
+                    return (np.frombuffer(audio_data, dtype=np.int16) * volume_scale).astype(np.int16).tobytes()
+                self.audio_processor = volume_modifier
+        except Exception as e:
+            print(f"更新音量设置时出错: {e}")
+
     def handle_voice(self):
         """处理按键说话功能"""
         while True and self.running:
             try:
-                is_speaking = keyboard.is_pressed('v')
+                is_speaking = keyboard.is_pressed(self.settings.ptt_key)
                 if is_speaking != self.is_talking:
                     self.is_talking = is_speaking
                     if self.on_ptt_change:
@@ -127,7 +151,10 @@ class MumbleRadioClient:
                     try:
                         data = self.stream.read(self.CHUNK, exception_on_overflow=False)
                         if data:
-                            self.mumble.sound_output.add_sound(data)
+                            # 调整麦克风音量
+                            audio_data = np.frombuffer(data, dtype=np.int16)
+                            audio_data = (audio_data * (self.settings.mic_volume / 100.0)).astype(np.int16)
+                            self.mumble.sound_output.add_sound(audio_data.tobytes())
                     except IOError as e:
                         print(f"音频读取错误: {e}")
                     except Exception as e:
@@ -141,7 +168,57 @@ class MumbleRadioClient:
     def handle_incoming_audio(self, user, soundchunk):
         """处理接收到的音频"""
         if user["name"] != self.mumble.users.myself["name"]:  # 不播放自己的声音
-            self.output_stream.write(soundchunk.pcm)
+            try:
+                # 调整收听音量
+                audio_data = np.frombuffer(soundchunk.pcm, dtype=np.int16)
+                audio_data = (audio_data * (self.settings.speaker_volume / 100.0)).astype(np.int16)
+                self.output_stream.write(audio_data.tobytes())
+            except Exception as e:
+                print(f"音频输出错误: {e}")
+
+    def reinitialize_audio(self):
+        """重新初始化音频设备"""
+        try:
+            # 关闭现有的音频流
+            if hasattr(self, 'stream') and self.stream:
+                self.stream.stop_stream()
+                self.stream.close()
+            if hasattr(self, 'output_stream') and self.output_stream:
+                self.output_stream.stop_stream()
+                self.output_stream.close()
+            
+            # 重新创建音频流
+            self.stream = self.audio.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                frames_per_buffer=self.CHUNK,
+                input_device_index=self.settings.input_device_index
+            )
+            self.output_stream = self.audio.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                output=True,
+                frames_per_buffer=self.CHUNK,
+                output_device_index=self.settings.output_device_index
+            )
+            
+            # 更新音量设置
+            self.update_volumes()
+            print("音频设备重新初始化完成")
+        except Exception as e:
+            print(f"重新初始化音频设备失败: {e}")
+            raise
+
+    def show_settings(self):
+        """显示设置对话框"""
+        from settings import SettingsDialog
+        dialog = SettingsDialog(self.settings)
+        if dialog.exec():
+            # 如果用户点击了保存，则重新初始化音频设备
+            self.reinitialize_audio()
 
     @suppress_mumble_errors
     def run(self):

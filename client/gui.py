@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                          QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-                         QStackedWidget, QMessageBox)
+                         QStackedWidget, QMessageBox, QDialog)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QPalette, QColor
 from radio import MumbleRadioClient
@@ -89,6 +89,9 @@ class MainWindow(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frequency)
         self.timer.start(1000)  # 每秒更新一次
+        
+        # 连接设置按钮
+        self.settings_button.clicked.connect(self.show_settings)
 
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -123,6 +126,13 @@ class MainWindow(QWidget):
 
     def update_ptt_status(self, is_talking):
         self.ptt_indicator.setActive(is_talking)
+
+    def show_settings(self):
+        from settings import SettingsDialog
+        dialog = SettingsDialog(self.radio_client.settings, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # 更新音量设置并重新初始化音频设备
+            self.radio_client.reinitialize_audio()  # 重新初始化音频设备
 
 class ErrorSignal(QObject):
     error = pyqtSignal(str)
