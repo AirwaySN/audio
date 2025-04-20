@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                          QHBoxLayout, QLabel, QPushButton, QLineEdit, 
-                         QStackedWidget, QFrame, QSlider)
+                         QStackedWidget, QFrame, QSlider, QMessageBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 import re
@@ -192,7 +192,9 @@ class ATCWindow(QMainWindow):
             self.settings.save_settings()
             
         except Exception as e:
-            self.login_status_label.setText(f'连接失败: {str(e)}')
+            error_message = str(e)
+            QMessageBox.critical(self, '连接失败：', f'{error_message}')
+            self.login_status_label.setText('未连接')
 
     def disconnect_radio(self):
         if self.radio_client:

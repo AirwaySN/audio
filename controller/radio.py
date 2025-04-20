@@ -5,6 +5,7 @@ import threading
 import time
 import numpy as np
 from contextlib import contextmanager
+from pymumble_py3.errors import ConnectionRejectedError
 
 server = "hjdczy.top"
 
@@ -18,7 +19,7 @@ class ATCRadioClient:
         self.mumble.set_receive_sound(True)  # 启用音频接收
         self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_SOUNDRECEIVED, self.sound_received)  # 设置音频接收回调
         self.mumble.callbacks.set_callback("connected", self.on_connected)
-        self.connected = False
+        self.connected = False  # 初始化连接状态
         self.audio = pyaudio.PyAudio()
         self.input_stream = None
         self.output_stream = None
@@ -54,16 +55,34 @@ class ATCRadioClient:
             print(f"重新启动音频设备失败: {e}")
 
     def start(self):
-        self.mumble.start()
-        self.mumble.is_ready()
-        self.setup_audio()  # 初始化音频设备
+        try:
+            self.mumble.start()
+            # 等待连接完成或出现错误
+            timeout = 5  # 5秒超时
+            start_time = time.time()
+            while not self.connected and time.time() - start_time < timeout:
+                if hasattr(self.mumble, '_thread') and not self.mumble._thread.is_alive():
+                    # 如果线程已经死掉，说明可能出现了错误
+                    raise ConnectionRejectedError("连接被拒绝")
+                time.sleep(0.1)
+            
+            if not self.connected:
+                raise Exception("连接超时，可能是用户名或密码错误")
+                
+            self.setup_audio()
+        except ConnectionRejectedError as e:
+            self.stop()
+            raise ConnectionRejectedError(str(e))
+        except Exception as e:
+            self.stop()
+            raise Exception(f"连接失败: {str(e)}")
 
     def on_connected(self):
+        """当连接成功时被调用"""
         self.connected = True
         freq_value = int(round(float(self.frequency) * 1000))
         channel_name = f"FREQ_{str(freq_value).zfill(6)}"
 
-        print(f"连接到服务器: {self.mumble}")
         try:
             channel = self.mumble.channels.find_by_name(channel_name)
         except pymumble.errors.UnknownChannelError:
@@ -80,7 +99,6 @@ class ATCRadioClient:
             if not hasattr(self, 'current_channel') or self.current_channel != channel["channel_id"]:
                 self.mumble.users.myself.move_in(channel["channel_id"])
                 self.current_channel = channel["channel_id"]
-                print(f"已切换到频率: {self.frequency}")
 
     def setup_audio(self, input_device=None, output_device=None):
         """设置音频设备"""
