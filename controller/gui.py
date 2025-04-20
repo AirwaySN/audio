@@ -1,12 +1,14 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                          QHBoxLayout, QLabel, QPushButton, QLineEdit, 
-                         QStackedWidget, QFrame, QSlider, QMessageBox)
+                         QStackedWidget, QFrame, QSlider, QMessageBox,
+                         QDialog, QTextEdit, QCheckBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 import re
 import keyboard
 from radio import ATCRadioClient, server
 from settings import Settings, SettingsDialog
+from ATIS import ATISBroadcaster
 
 class PTTIndicator(QFrame):
     def __init__(self, parent=None):
@@ -19,12 +21,86 @@ class PTTIndicator(QFrame):
         self.active = active
         self.setStyleSheet(f"background-color: {'#ff0000' if active else '#808080'}; border-radius: 10px;")
 
+class ATISDialog(QDialog):
+    def __init__(self, atis_id, parent=None):
+        super().__init__(parent)
+        self.atis_id = atis_id
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle(f'ATIS {self.atis_id} 设置')
+        self.setGeometry(200, 200, 400, 500)
+
+        layout = QVBoxLayout()
+
+        # 频率输入框
+        freq_layout = QHBoxLayout()
+        self.freq_input = QLineEdit()
+        self.freq_input.setPlaceholderText('频率 (例如: 118.000)')
+        freq_layout.addWidget(QLabel('频率:'))
+        freq_layout.addWidget(self.freq_input)
+        layout.addLayout(freq_layout)
+
+        # 中文通播选项
+        self.chinese_checkbox = QCheckBox('启用中文通播')
+        self.chinese_checkbox.stateChanged.connect(self.toggle_chinese_text)
+        layout.addWidget(self.chinese_checkbox)
+
+        # 中文通播输入框
+        self.chinese_group = QWidget()
+        chinese_layout = QVBoxLayout(self.chinese_group)
+        chinese_layout.addWidget(QLabel('中文通播内容:'))
+        self.chinese_text = QTextEdit()
+        self.chinese_text.setPlaceholderText('所有输入的阿拉伯数字会被替换为无线电读法，所有空格+大写字母+空格的格式会被替换为无线电读法')
+        chinese_layout.addWidget(self.chinese_text)
+        layout.addWidget(self.chinese_group)
+        self.chinese_group.setVisible(False)
+
+        # 英文通播输入框
+        layout.addWidget(QLabel('英文通播内容:'))
+        self.english_text = QTextEdit()
+        self.english_text.setPlaceholderText('all arabic numbers will be replaced with radio readout, and all spaces + capital letters + spaces will be replaced with radio readout')
+        layout.addWidget(self.english_text)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        self.start_btn = QPushButton('开始播报')
+        self.start_btn.clicked.connect(self.validate_and_accept)
+        btn_layout.addWidget(self.start_btn)
+        layout.addLayout(btn_layout)
+
+        self.setLayout(layout)
+
+    def toggle_chinese_text(self, state):
+        self.chinese_group.setVisible(state == Qt.CheckState.Checked.value)
+
+    def validate_and_accept(self):
+        # 验证频率格式
+        freq = self.freq_input.text()
+        if not re.match(r'^\d{3}\.\d{3}$', freq):
+            QMessageBox.warning(self, '输入错误', '请输入正确的频率格式 (例如: 118.000)')
+            return
+
+        # 预处理文本内容，去除多余空格
+        chinese_text = " ".join(self.chinese_text.toPlainText().split()) if self.chinese_checkbox.isChecked() else ""
+        english_text = " ".join(self.english_text.toPlainText().split())
+        
+        if not english_text:
+            QMessageBox.warning(self, '输入错误', '英文通播内容不能为空')
+            return
+
+        # 内容验证通过，接受对话框
+        self.accept()
+
 class ATCWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.radio_client = None
         self.settings = Settings()
         self.server = server  # 添加服务器地址属性
+        self.atis_clients = {}  # 存储ATIS客户端实例
+        self.atis_status = {'1': False, '2': False}  # ATIS状态
+        self.atis_broadcasters = {}  # 存储ATIS广播实例
         self.initUI()
         self.setup_keyboard_hook()
 
@@ -125,11 +201,21 @@ class ATCWindow(QMainWindow):
         self.disconnect_btn = QPushButton('断开连接')
         self.disconnect_btn.clicked.connect(self.disconnect_radio)
         
+        # ATIS按钮
+        atis_layout = QHBoxLayout()
+        self.atis_btn1 = QPushButton('添加情报通播1')
+        self.atis_btn2 = QPushButton('添加情报通播2')
+        self.atis_btn1.clicked.connect(lambda: self.toggle_atis('1'))
+        self.atis_btn2.clicked.connect(lambda: self.toggle_atis('2'))
+        atis_layout.addWidget(self.atis_btn1)
+        atis_layout.addWidget(self.atis_btn2)
+        
         # 添加所有部件
         layout.addLayout(top_bar)
         layout.addLayout(ptt_layout)
         layout.addWidget(self.ptt_button)
         layout.addWidget(self.comm_status_label)
+        layout.addLayout(atis_layout)  # 添加ATIS按钮
         layout.addWidget(self.disconnect_btn)
 
     def setup_keyboard_hook(self):
@@ -227,11 +313,100 @@ class ATCWindow(QMainWindow):
         self.settings.speaker_volume = value
         self.settings.save_settings()
 
+    def toggle_atis(self, atis_id):
+        if not self.atis_status[atis_id]:
+            dialog = ATISDialog(atis_id, self)
+            if dialog.exec():
+                try:
+                    freq = dialog.freq_input.text()
+                    chinese_text = dialog.chinese_text.toPlainText().strip() if dialog.chinese_checkbox.isChecked() else ""
+                    english_text = dialog.english_text.toPlainText().strip()
+
+                    if not english_text:
+                        raise ValueError("英文通播内容不能为空")
+
+                    base_username = self.username_input.text()
+                    atis_username = f"{base_username}_atis"
+                    
+                    client = ATCRadioClient(
+                        self.server,
+                        atis_username,
+                        self.password_input.text(),
+                        freq
+                    )
+                    
+                    try:
+                        client.start()
+                    except Exception as e:
+                        raise Exception(f"ATIS客户端启动失败: {str(e)}")
+
+                    client.setup_audio(
+                        self.settings.input_device_index,
+                        self.settings.output_device_index
+                    )
+                    
+                    self.atis_clients[atis_id] = client
+
+                    try:
+                        broadcaster = ATISBroadcaster(chinese_text, english_text, client)
+                        broadcaster.start_broadcasting()
+                        self.atis_broadcasters[atis_id] = broadcaster
+                    except Exception as e:
+                        client.stop()
+                        del self.atis_clients[atis_id]
+                        raise Exception(f"ATIS广播器启动失败: {str(e)}")
+                    
+                    self.atis_status[atis_id] = True
+                    btn = self.atis_btn1 if atis_id == '1' else self.atis_btn2
+                    btn.setText(f'停止情报通播{atis_id}')
+                    
+                except Exception as e:
+                    QMessageBox.critical(self, '错误', f'启动ATIS失败: {str(e)}')
+                    self.cleanup_atis(atis_id)
+        else:
+            self.cleanup_atis(atis_id)
+
+    def cleanup_atis(self, atis_id):
+        """清理ATIS相关资源"""
+        try:
+            if atis_id in self.atis_broadcasters:
+                try:
+                    self.atis_broadcasters[atis_id].stop_broadcasting()
+                except Exception as e:
+                    print(f"停止ATIS广播时出错: {e}")
+                finally:
+                    del self.atis_broadcasters[atis_id]
+            
+            if atis_id in self.atis_clients:
+                try:
+                    self.atis_clients[atis_id].stop()
+                except Exception as e:
+                    print(f"停止ATIS客户端时出错: {e}")
+                finally:
+                    del self.atis_clients[atis_id]
+            
+            self.atis_status[atis_id] = False
+            
+            btn = self.atis_btn1 if atis_id == '1' else self.atis_btn2
+            btn.setText(f'添加情报通播{atis_id}')
+        except Exception as e:
+            print(f"清理ATIS资源时出错: {e}")
+
     def closeEvent(self, event):
-        keyboard.unhook_all()
-        if self.radio_client:
-            self.radio_client.stop()
-        event.accept()
+        try:
+            # 停止所有ATIS广播
+            for broadcaster in self.atis_broadcasters.values():
+                broadcaster.stop_broadcasting()
+            # 停止所有ATIS客户端
+            for client in self.atis_clients.values():
+                client.stop()
+            keyboard.unhook_all()
+            if self.radio_client:
+                self.radio_client.stop()
+        except Exception as e:
+            print(f"关闭窗口时出错: {e}")
+        finally:
+            event.accept()
 
 if __name__ == '__main__':
     import sys

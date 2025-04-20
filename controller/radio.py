@@ -15,6 +15,14 @@ class AudioStreamError(Exception):
 class ATCRadioClient:
     def __init__(self, server, user, password, frequency):
         self.frequency = frequency
+        # 处理ATIS用户名格式
+        if '_atis' in user:
+            # 获取真实用户名和频率
+            base_user = user.split('_atis')[0]
+            freq_value = int(round(float(frequency) * 1000))
+            # 构建ATIS格式用户名
+            user = f"{base_user}_atis{str(freq_value).zfill(6)}"
+        
         self.mumble = pymumble.Mumble(server, user, password=password, reconnect=True)
         self.mumble.set_receive_sound(True)  # 启用音频接收
         self.mumble.callbacks.set_callback(pymumble.constants.PYMUMBLE_CLBK_SOUNDRECEIVED, self.sound_received)  # 设置音频接收回调
@@ -174,11 +182,17 @@ class ATCRadioClient:
         """处理接收到的音频"""
         if user["name"] == self.mumble.users.myself["name"]:
             return  # 不处理自己的声音
+            
+        if not soundchunk or not hasattr(soundchunk, 'pcm') or soundchunk.pcm is None:
+            return  # 忽略无效的音频数据
 
         try:
             with self._safe_audio_stream(self.output_stream) as stream:
                 # 使用numpy处理接收到的音频
                 audio_data = np.frombuffer(soundchunk.pcm, dtype=np.int16)
+                if len(audio_data) == 0:
+                    return  # 忽略空的音频数据
+                    
                 # 应用音量调节（添加限幅以防止溢出）
                 scaled_data = audio_data * self.speaker_volume
                 audio_data = np.clip(scaled_data, np.iinfo(np.int16).min, np.iinfo(np.int16).max).astype(np.int16)
