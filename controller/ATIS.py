@@ -100,8 +100,8 @@ class ATISBroadcaster:
         self.running = False
         self.broadcast_thread = None
         self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 150)  # 降低语速
-        self.engine.setProperty('volume', 0.9)
+        self.engine.setProperty('rate', 100)  # 降低语速
+        self.engine.setProperty('volume', 0.8)
         self.target_rate = 48000  # 目标采样率
         
         # 创建临时目录
@@ -305,7 +305,7 @@ class ATISBroadcaster:
                             break
 
                         print("中文播放完成，等待检查频道状态...")
-                        time.sleep(2)
+                        time.sleep(20)
 
                     if self.check_channel_silence():
                         print("\n开始播放英文ATIS...")
