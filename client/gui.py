@@ -1,4 +1,10 @@
 import sys
+import os
+
+# 在导入pygame之前设置SDL环境变量
+os.environ['SDL_VIDEODRIVER'] = 'dummy'
+os.environ['SDL_AUDIODRIVER'] = 'dummy'
+
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                          QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                          QStackedWidget, QMessageBox, QDialog)
@@ -10,6 +16,7 @@ import time
 import keyboard
 import pymumble_py3 as pymumble
 import queue
+import pygame
 
 class CircleIndicator(QWidget):
     def __init__(self, parent=None):
@@ -143,6 +150,27 @@ class ConnectSignal(QObject):
 class RadioGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 初始化pygame
+        try:
+            print("[DEBUG-GUI] 开始初始化pygame子系统")
+            pygame.init()
+            print(f"[DEBUG-GUI] pygame.init() 返回值: {pygame.get_init()}")
+            
+            print("[DEBUG-GUI] 开始初始化显示系统")
+            pygame.display.init()
+            print("[DEBUG-GUI] 显示系统初始化状态:", pygame.display.get_init())
+            
+            print("[DEBUG-GUI] 开始初始化摇杆系统")
+            pygame.joystick.init()
+            print(f"[DEBUG-GUI] 摇杆系统初始化完成，检测到 {pygame.joystick.get_count()} 个摇杆")
+            print(f"[DEBUG-GUI] 摇杆系统初始化状态: {pygame.joystick.get_init()}")
+        except Exception as e:
+            print(f"[DEBUG-GUI] Pygame初始化失败: {e}")
+            print(f"[DEBUG-GUI] pygame状态:")
+            print(f"- pygame.get_init(): {pygame.get_init()}")
+            print(f"- pygame.display.get_init(): {pygame.display.get_init()}")
+            print(f"- pygame.joystick.get_init(): {pygame.joystick.get_init()}")
+            
         self.setWindowTitle("无线电通话")
         self.setMinimumSize(300, 200)
         

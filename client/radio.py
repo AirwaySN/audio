@@ -1,3 +1,7 @@
+import os
+os.environ['SDL_VIDEODRIVER'] = 'dummy'
+os.environ['SDL_AUDIODRIVER'] = 'dummy'
+
 from SimConnect import *
 import pymumble_py3 as pymumble
 import threading
@@ -8,7 +12,7 @@ import wave
 import numpy as np  # 确保numpy被导入
 import sys
 import functools
-
+import pygame  # pygame导入必须在设置环境变量之后
 
 # 配置服务器信息
 SERVER_HOST = "hjdczy.top"  # Mumble服务器地址
@@ -43,6 +47,10 @@ class MumbleRadioClient:
         # 添加设置支持
         from settings import Settings
         self.settings = Settings()
+        
+        # 确保音量在合理范围内
+        self.settings.mic_volume = max(0, min(200, self.settings.mic_volume))
+        self.settings.speaker_volume = max(0, min(200, self.settings.speaker_volume))
         
         # 初始化音频设备
         self.audio = pyaudio.PyAudio()
@@ -82,6 +90,30 @@ class MumbleRadioClient:
         self.monitor_thread = None
         self.voice_thread = None
         self.running = True
+
+        self.pygame_lock = threading.Lock()  # 添加pygame锁
+        self.pygame_initialized = False
+        try:
+            with self.pygame_lock:
+                print("[DEBUG] 开始初始化 pygame 子系统")
+                if not pygame.get_init():
+                    pygame.init()
+                if not pygame.display.get_init():
+                    pygame.display.init()
+                if not pygame.joystick.get_init():
+                    pygame.joystick.init()
+                self.pygame_initialized = True
+                print(f"[DEBUG] pygame初始化完成，检测到 {pygame.joystick.get_count()} 个摇杆")
+                
+                self.joystick = None
+                if pygame.joystick.get_count() > 0:
+                    self.joystick = pygame.joystick.Joystick(0)
+                    self.joystick.init()
+                    print(f"[DEBUG] 摇杆初始化完成: {self.joystick.get_name()}")
+        except Exception as e:
+            print(f"[DEBUG] 摇杆初始化失败: {e}")
+            self.pygame_initialized = False
+            self.joystick = None
 
     def convert_frequency(self, frequency):
         """将频率转换为标准格式"""
@@ -137,33 +169,129 @@ class MumbleRadioClient:
         except Exception as e:
             print(f"更新音量设置时出错: {e}")
 
+    def ensure_pygame_initialized(self):
+        """确保pygame在当前线程中正确初始化"""
+        with self.pygame_lock:
+            try:
+                if not pygame.get_init():
+                    print("[DEBUG] 重新初始化pygame")
+                    pygame.init()
+                if not pygame.display.get_init():
+                    pygame.display.init()
+                if not pygame.joystick.get_init():
+                    pygame.joystick.init()
+                
+                if pygame.joystick.get_count() > 0:
+                    if not self.joystick or not self.joystick.get_init():
+                        self.joystick = pygame.joystick.Joystick(0)
+                        self.joystick.init()
+                        print(f"[DEBUG] 摇杆重新初始化: {self.joystick.get_name()}")
+                return True
+            except Exception as e:
+                print(f"[DEBUG] pygame重新初始化失败: {e}")
+                return False
+
+    def reinitialize_joystick(self):
+        """重新初始化摇杆"""
+        print("[DEBUG] 尝试重新初始化摇杆")
+        with self.pygame_lock:
+            try:
+                # 关闭现有摇杆
+                if self.joystick:
+                    try:
+                        self.joystick.quit()
+                    except:
+                        pass
+                    self.joystick = None
+
+                # 确保pygame已初始化
+                if not pygame.get_init():
+                    pygame.init()
+                if not pygame.display.get_init():
+                    pygame.display.init()
+                if not pygame.joystick.get_init():
+                    pygame.joystick.init()
+
+                # 重新初始化摇杆
+                if pygame.joystick.get_count() > 0:
+                    self.joystick = pygame.joystick.Joystick(0)
+                    self.joystick.init()
+                    print(f"[DEBUG] 摇杆重新初始化成功: {self.joystick.get_name()}")
+                    return True
+            except Exception as e:
+                print(f"[DEBUG] 摇杆重新初始化失败: {e}")
+                return False
+
     def handle_voice(self):
         """处理按键说话功能"""
-        while True and self.running:
+        print("[DEBUG] 开始语音处理线程")
+        self.ensure_pygame_initialized()
+        last_ptt_state = False
+        
+        while self.running:
             try:
-                is_speaking = keyboard.is_pressed(self.settings.ptt_key)
-                if is_speaking != self.is_talking:
+                # 检查键盘和摇杆PTT状态
+                keyboard_ptt = keyboard.is_pressed(self.settings.ptt_key)
+                joystick_ptt = False
+                
+                if self.settings.joystick_ptt is not None:
+                    try:
+                        with self.pygame_lock:
+                            if not pygame.get_init() or not pygame.joystick.get_init():
+                                self.ensure_pygame_initialized()
+                            pygame.event.pump()
+                            if (self.joystick and self.joystick.get_init() and 
+                                self.settings.joystick_ptt < self.joystick.get_numbuttons()):
+                                joystick_ptt = self.joystick.get_button(self.settings.joystick_ptt)
+                    except Exception as e:
+                        print(f"[DEBUG] 摇杆读取错误: {e}")
+                
+                is_speaking = keyboard_ptt or joystick_ptt
+                
+                # 状态改变时更新和打印
+                if is_speaking != last_ptt_state:
+                    print(f"[DEBUG] PTT状态改变: {is_speaking} (键盘: {keyboard_ptt}, 摇杆: {joystick_ptt})")
+                    last_ptt_state = is_speaking
                     self.is_talking = is_speaking
                     if self.on_ptt_change:
                         self.on_ptt_change(self.is_talking)
                 
-                if self.is_talking and self.stream and self.mumble and self.mumble.connected:
+                # 如果PTT被按下，检查是否可以发送音频
+                if self.is_talking:
+                    if not self.stream or not self.mumble:
+                        print("[DEBUG] 音频发送失败：设备未就绪")
+                        continue
+                    
                     try:
+                        # 通过检查mumble连接状态和channel来判断是否就绪
+                        if not self.mumble.connected > 0:
+                            print("[DEBUG] Mumble未连接")
+                            continue
+                            
+                        if not self.mumble.channels:
+                            print("[DEBUG] Mumble频道列表为空")
+                            continue
+                            
+                        if not self.mumble.users.myself or not self.mumble.users.myself["channel_id"]:
+                            print("[DEBUG] 未加入任何频道")
+                            continue
+                            
                         data = self.stream.read(self.CHUNK, exception_on_overflow=False)
                         if data:
-                            # 调整麦克风音量
                             audio_data = np.frombuffer(data, dtype=np.int16)
                             audio_data = (audio_data * (self.settings.mic_volume / 100.0)).astype(np.int16)
-                            self.mumble.sound_output.add_sound(audio_data.tobytes())
-                    except IOError as e:
-                        print(f"音频读取错误: {e}")
+                            if not any(audio_data):  # 检查是否全是静音
+                                print("[DEBUG] 检测到静音数据")
+                            else:
+                                self.mumble.sound_output.add_sound(audio_data.tobytes())
+                                
                     except Exception as e:
-                        print(f"音频发送错误: {e}")
+                        print(f"[DEBUG] 音频处理错误: {e}")
                 
                 time.sleep(0.01)
             except Exception as e:
-                print(f"语音处理错误: {e}")
-                time.sleep(1)
+                print(f"[DEBUG] 语音处理错误: {e}")
+                time.sleep(0.1)
 
     def handle_incoming_audio(self, user, soundchunk):
         """处理接收到的音频"""
@@ -275,6 +403,13 @@ class MumbleRadioClient:
                 self.monitor_thread.join(timeout=1.0)
             if self.voice_thread and self.voice_thread.is_alive():
                 self.voice_thread.join(timeout=1.0)
+                
+            if hasattr(self, 'joystick') and self.joystick:
+                try:
+                    self.joystick.quit()
+                except:
+                    pass
+            pygame.quit()
                 
         except Exception as e:
             print(f"清理资源时出错: {e}")
