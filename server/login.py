@@ -8,6 +8,7 @@ import Murmur
 import requests
 import json
 import traceback
+import re
 
 class AuthenticatorI(Murmur.ServerAuthenticator):
     def __init__(self, server, adapter , serverprx=None):
@@ -19,14 +20,29 @@ class AuthenticatorI(Murmur.ServerAuthenticator):
     def authenticate(self, name, pw, certificates, certhash, certstrong, current=None):
         try:
             print(f"认证用户: {name}")
-            if login(name, pw):
-                if name in self.online_users:
-                    old_session = self.online_users[name]
-                    try:
-                        self.serverprx.kickUser(old_session, "您的账号在其他位置登录")
-                    except Exception as e:
-                        print(f"踢出用户失败: {e}")
-                return (int(name), name, [])
+            # 检查是否是ATIS登录
+            atis_pattern = re.compile(r"^.*_atis\d{6}")
+            if atis_pattern.match(name):
+                print(f"匹配到ATIS登录: {name}")
+                if login_ATIS(name, pw):
+                    if name in self.online_users:
+                        old_session = self.online_users[name]
+                        try:
+                            self.serverprx.kickUser(old_session, "您的账号在其他位置登录")
+                        except Exception as e:
+                            print(f"踢出用户失败: {e}")
+                    # 提取atis后面的6位数字作为用户ID
+                    atis_id = name.split("_atis")[1]
+                    return (int(atis_id), name, [])
+            else:
+                if login(name, pw):
+                    if name in self.online_users:
+                        old_session = self.online_users[name]
+                        try:
+                            self.serverprx.kickUser(old_session, "您的账号在其他位置登录")
+                        except Exception as e:
+                            print(f"踢出用户失败: {e}")
+                    return (int(name), name, [])
             return (-1, "", [])
         except Exception as e:
             print(f"认证异常: {e}")
@@ -57,8 +73,10 @@ class AuthenticatorI(Murmur.ServerAuthenticator):
     def idToTexture(self, id, current=None):
         return []
 
+url = "https://airwaysn.org/api/v1/public/auth"
 def login(cid, password):
-    url = "https://airwaysn.org/api/v1/public/auth"
+    global url
+    # url = "https://airwaysn.org/api/v1/public/auth"
     headers = {
         "Content-Type": "application/json",
     }
@@ -79,6 +97,35 @@ def login(cid, password):
     except requests.exceptions.RequestException as e:
         print(f"请求错误: {e}")
         return False
+    
+def login_ATIS(cid, password):
+    # ATIS登录逻辑，ATIS登录时遵循用户名：DDDD_atisDDDDDD的格式
+    print(f"ATIS登录: {cid}, {password}")
+    # 获取真正的用户ID（ATIS前面的数字）
+    cid = cid.split("_atis")[0]
+    
+    headers = {
+        "Content-Type": "application/json",
+    }
+    data = {
+        "cid": str(cid),
+        "password": str(password),
+    }
+    print(f"登录请求: {data}")
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(data))
+        if response.status_code == 200:
+            print (f"ATIS登录成功: {response.status_code}, {response.text}")
+            return True
+        
+        else:
+            print (f"登录失败: {response.status_code}, {response.text}")
+            return False
+    except requests.exceptions.RequestException as e:
+        print(f"请求错误: {e}")
+        return False
+
+
 
 def main():
     with Ice.initialize(sys.argv) as communicator:
