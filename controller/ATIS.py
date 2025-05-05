@@ -1,7 +1,6 @@
 import pyttsx3
 import threading
 import time
-import io
 import wave
 import numpy as np
 import os
