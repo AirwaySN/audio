@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                          QDialog, QTextEdit, QCheckBox)
 from PyQt6.QtCore import Qt
 import re
-import keyboard
+from pynput import keyboard
 from radio import ATCRadioClient, server
 from settings import Settings, SettingsDialog
 # from ATIS import ATISBroadcaster
@@ -218,14 +218,35 @@ class ATCWindow(QMainWindow):
         layout.addWidget(self.disconnect_btn)
 
     def setup_keyboard_hook(self):
-        keyboard.on_press_key(self.settings.ptt_key, lambda _: self.ptt_pressed())
-        keyboard.on_release_key(self.settings.ptt_key, lambda _: self.ptt_released())
+        self.keyboard_listener = keyboard.Listener(
+            on_press=lambda key: self.on_key_press(key),
+            on_release=lambda key: self.on_key_release(key)
+        )
+        self.keyboard_listener.start()
+
+    def on_key_press(self, key):
+        try:
+            # 将 pynput 的按键转换为字符串格式进行比较
+            key_str = key.char if hasattr(key, 'char') else key.name if hasattr(key, 'name') else str(key)
+            if key_str == self.settings.ptt_key:
+                self.ptt_pressed()
+        except AttributeError:
+            pass
+
+    def on_key_release(self, key):
+        try:
+            key_str = key.char if hasattr(key, 'char') else key.name if hasattr(key, 'name') else str(key)
+            if key_str == self.settings.ptt_key:
+                self.ptt_released()
+        except AttributeError:
+            pass
 
     def open_settings(self):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec():
             # 更新键盘钩子
-            keyboard.unhook_all()
+            if hasattr(self, 'keyboard_listener'):
+                self.keyboard_listener.stop()
             self.setup_keyboard_hook()
             # 更新音频设备
             if self.radio_client:
@@ -399,7 +420,8 @@ class ATCWindow(QMainWindow):
             # 停止所有ATIS客户端
             for client in self.atis_clients.values():
                 client.stop()
-            keyboard.unhook_all()
+            if hasattr(self, 'keyboard_listener'):
+                self.keyboard_listener.stop()
             if self.radio_client:
                 self.radio_client.stop()
         except Exception as e:

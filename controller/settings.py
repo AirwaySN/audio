@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt
 import json
 import os
-import keyboard
+from pynput import keyboard
 
 class Settings:
     def __init__(self):
@@ -170,21 +170,26 @@ class SettingsDialog(QDialog):
         self.ptt_input.setText("请按下按键...")
         self.ptt_reset_btn.setEnabled(False)
         
-        
-        def on_key_pressed(event):
+        def on_key_pressed(key):
             if self.listening_for_key:
-                # 使用event.name来识别按键，它已经包含了left/right信息
-                key_name = event.name
-                self.ptt_input.setText(key_name)
+                # 转换按键为字符串格式
+                key_str = key.char if hasattr(key, 'char') else key.name if hasattr(key, 'name') else str(key)
+                self.ptt_input.setText(key_str)
                 self.listening_for_key = False
                 self.ptt_reset_btn.setEnabled(True)
-                keyboard.unhook_all()  # 停止监听
+                if hasattr(self, 'keyboard_listener'):
+                    self.keyboard_listener.stop()
+                    self.keyboard_listener = None
 
-        keyboard.on_press(on_key_pressed)
+        # 创建新的键盘监听器
+        self.keyboard_listener = keyboard.Listener(on_press=on_key_pressed)
+        self.keyboard_listener.start()
 
     def cleanup(self):
         """清理资源"""
-        keyboard.unhook_all()
+        if hasattr(self, 'keyboard_listener') and self.keyboard_listener:
+            self.keyboard_listener.stop()
+            self.keyboard_listener = None
 
     def reject(self):
         """取消时清理资源"""
