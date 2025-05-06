@@ -16,7 +16,9 @@ a = Analysis(
     binaries=[
         (simconnect_dll, 'SimConnect')
     ],
-    datas=[],
+    datas=[
+        ('.favicon.ico', '.')
+    ],
     hiddenimports=[
         'pkg_resources',
         'pkgutil',
@@ -54,4 +56,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='.favicon.ico'
 )

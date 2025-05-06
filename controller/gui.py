@@ -8,6 +8,9 @@ from pynput import keyboard
 from radio import ATCRadioClient, server
 from settings import Settings, SettingsDialog
 # from ATIS import ATISBroadcaster
+from PyQt6.QtGui import QIcon
+
+icon_path = r".\favicon.ico"
 
 class PTTIndicator(QFrame):
     def __init__(self, parent=None):
@@ -94,6 +97,7 @@ class ATISDialog(QDialog):
 class ATCWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(QIcon(icon_path))
         self.radio_client = None
         self.settings = Settings()
         self.server = server  # 添加服务器地址属性
@@ -432,8 +436,10 @@ class ATCWindow(QMainWindow):
 if __name__ == '__main__':
     import sys
     from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QIcon
     
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(icon_path))
     window = ATCWindow()
     window.show()
     sys.exit(app.exec())

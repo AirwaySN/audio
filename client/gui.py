@@ -18,6 +18,8 @@ import pymumble_py3 as pymumble
 import queue
 import pygame
 
+ico_path = r".\favicon.ico"
+
 class CircleIndicator(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -150,6 +152,14 @@ class ConnectSignal(QObject):
 class RadioGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 设置应用程序图标和窗口图标
+        from PyQt6.QtGui import QIcon
+        icon = QIcon(ico_path)
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app:
+            app.setWindowIcon(icon)
+
         # 初始化pygame
         try:
             print("[DEBUG-GUI] 开始初始化pygame子系统")
