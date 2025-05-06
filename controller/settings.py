@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                          QPushButton, QSlider, QLineEdit, QComboBox)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 import json
 import os
+import keyboard
 
 class Settings:
     def __init__(self):
@@ -169,10 +170,12 @@ class SettingsDialog(QDialog):
         self.ptt_input.setText("请按下按键...")
         self.ptt_reset_btn.setEnabled(False)
         
-        import keyboard
+        
         def on_key_pressed(event):
-            if self.listening_for_key and event.name:
-                self.ptt_input.setText(event.name)
+            if self.listening_for_key:
+                # 使用event.name来识别按键，它已经包含了left/right信息
+                key_name = event.name
+                self.ptt_input.setText(key_name)
                 self.listening_for_key = False
                 self.ptt_reset_btn.setEnabled(True)
                 keyboard.unhook_all()  # 停止监听
@@ -181,7 +184,6 @@ class SettingsDialog(QDialog):
 
     def cleanup(self):
         """清理资源"""
-        import keyboard
         keyboard.unhook_all()
 
     def reject(self):

@@ -66,7 +66,7 @@ class ATCRadioClient:
         try:
             self.mumble.start()
             # 等待连接完成或出现错误
-            timeout = 5  # 5秒超时
+            timeout = 10  # 10秒超时
             start_time = time.time()
             while not self.connected and time.time() - start_time < timeout:
                 if hasattr(self.mumble, '_thread') and not self.mumble._thread.is_alive():
