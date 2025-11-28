@@ -141,7 +141,7 @@ def main():
             return
 
         # 使用正确的ice secret
-        context = {"secret": "yoyo14185721"}
+        context = {"secret": ""}
         server = meta.getServer(1, context)
 
         serverprx = Murmur.ServerPrx.checkedCast(server)

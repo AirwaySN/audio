@@ -15,9 +15,9 @@ import functools
 import pygame  # pygame导入必须在设置环境变量之后
 
 # 配置服务器信息
-SERVER_HOST = "hjdczy.top"  # Mumble服务器地址
-USERNAME = "1005"    # 用户名
-PASSWORD = "yoyo14185721"             # 密码（如果需要）
+SERVER_HOST = "118.153.226.153"  # Mumble服务器地址
+USERNAME = ""    # 用户名
+PASSWORD = ""             # 密码（如果需要）
 
 def suppress_mumble_errors(func):
     @functools.wraps(func)
