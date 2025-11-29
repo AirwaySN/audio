@@ -7,7 +7,7 @@ import numpy as np
 from contextlib import contextmanager
 from pymumble_py3.errors import ConnectionRejectedError
 
-server = "hjdczy.top"
+server = "118.153.226.153"
 
 class AudioStreamError(Exception):
     pass

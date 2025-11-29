@@ -132,9 +132,14 @@ def login_ATIS(cid, password):
 
 
 def main():
-    with Ice.initialize(sys.argv) as communicator:
-        # 设置Ice连接
-        base = communicator.stringToProxy("Meta:tcp -h 127.0.0.1 -p 6502")
+    # 显式设置 Ice 编码版本为 1.0
+    init_data = Ice.InitializationData()
+    init_data.properties = Ice.createProperties()
+    init_data.properties.setProperty("Ice.Default.EncodingVersion", "1.0")
+
+    with Ice.initialize(init_data) as communicator:
+        # 设置Ice连接，强制代理使用 1.0 编码
+        base = communicator.stringToProxy("Meta:tcp -h 127.0.0.1 -p 6502 -e 1.0")
         meta = Murmur.MetaPrx.checkedCast(base)
         if not meta:
             print("无法连接到Murmur服务器")
