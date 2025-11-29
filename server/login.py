@@ -139,7 +139,7 @@ def main():
 
     with Ice.initialize(init_data) as communicator:
         # 设置Ice连接，强制代理使用 1.0 编码
-        base = communicator.stringToProxy("Meta:tcp -h 127.0.0.1 -p 6502 -e 1.0")
+        base = communicator.stringToProxy("Meta:tcp -h 127.0.0.1 -p 6502")
         meta = Murmur.MetaPrx.checkedCast(base)
         if not meta:
             print("无法连接到Murmur服务器")

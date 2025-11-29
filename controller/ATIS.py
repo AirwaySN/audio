@@ -99,9 +99,10 @@ class ATISBroadcaster:
         self.running = False
         self.broadcast_thread = None
         self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 100)  # 降低语速
+        self.engine.setProperty('rate', 150)  # 降低语速
         self.engine.setProperty('volume', 0.8)
         self.target_rate = 48000  # 目标采样率
+        self.lock = threading.Lock()  # 添加锁以保护共享资源
         
         # 创建临时目录
         self.temp_dir = tempfile.mkdtemp()
@@ -111,6 +112,15 @@ class ATISBroadcaster:
         self.silence_threshold = 100  # 音量阈值，低于此值视为静音
         self.silence_duration = 1.0  # 持续静音时间阈值（秒）
         self.last_sound_time = time.time()
+        # 新增：用于可中断等待
+        self.stop_event = threading.Event()
+
+    # 新增：根据字节长度计算音频时长（int16 PCM 单声道）
+    def calc_duration(self, bytes_len: int) -> float:
+        # 2 字节每样本，目标采样率为 self.target_rate
+        if not bytes_len or self.target_rate <= 0:
+            return 0.0
+        return bytes_len / (2 * self.target_rate)
 
     def text_to_audio_data(self, text):
         """将文本转换为音频数据"""
@@ -257,7 +267,9 @@ class ATISBroadcaster:
                 # 检查频道是否有其他声音
                 if not self.check_channel_silence():
                     print("检测到频道有其他音频，暂停发送")
-                    time.sleep(0.5)
+                    # 将阻塞睡眠改为可中断等待
+                    if self.stop_event.wait(0.5):
+                        break
                     continue
 
                 remaining = total_size - position
@@ -278,7 +290,9 @@ class ATISBroadcaster:
                 if chunks_sent % 10 == 0:
                     print(f"已发送 {position}/{total_size} 字节 ({(position/total_size*100):.1f}%)")
                 
-                time.sleep(0.02)
+                # 将阻塞睡眠改为可中断等待
+                if self.stop_event.wait(0.02):
+                    break
 
             print(f"音频发送完成，共发送了 {chunks_sent} 个音频块")
             return True
@@ -289,46 +303,58 @@ class ATISBroadcaster:
         finally:
             self.radio_client.stop_speaking()
 
+
     def _broadcast_loop(self):
         print("开始ATIS广播循环")
-        while self.running:
+        while self.running and not self.stop_event.is_set():
             try:
-                if self.check_channel_silence():
-                    if self.chinese_text:  # 只有当存在中文文本时才播放中文
-                        print("\n开始播放中文ATIS...")
-                        chinese_audio = self.text_to_audio_data(self.chinese_text)
-                        if not self.send_audio_data(chinese_audio):
-                            continue
-
-                        if not self.running:
-                            break
-
-                        print("中文播放完成，等待检查频道状态...")
-                        time.sleep(20)
-
+                with self.lock:
+                    total_duration = 0.0
                     if self.check_channel_silence():
-                        print("\n开始播放英文ATIS...")
-                        english_audio = self.text_to_audio_data(self.english_text)
-                        if not self.send_audio_data(english_audio):
-                            continue
-                    
-                    print("英文播放完成，等待下一轮...")
-                
-                  # 检查频道状态的间隔
+                        if self.chinese_text:
+                            print("\n开始播放中文ATIS...")
+                            chinese_audio = self.text_to_audio_data(self.chinese_text)
+                            if not self.running or self.stop_event.is_set():
+                                break
+                            if chinese_audio:
+                                total_duration += self.calc_duration(len(chinese_audio))
+                            if not self.send_audio_data(chinese_audio):
+                                continue
+                            self.stop_event.wait(3)  # 中文和英文间隔3秒
+
+                        if self.check_channel_silence():
+                            print("\n开始播放英文ATIS...")
+                            english_audio = self.text_to_audio_data(self.english_text)
+                            if not self.running or self.stop_event.is_set():
+                                break
+                            if english_audio:
+                                total_duration += self.calc_duration(len(english_audio))
+                            if not self.send_audio_data(english_audio):
+                                continue
+
+                    # 播放结束后等待中文+英文总时长的 1.1 倍
+                    wait_time = max(0.0, total_duration * 1.1)
+                    print(f"等待下一轮 {wait_time:.2f} 秒...")
             except Exception as e:
                 print(f"ATIS播放循环错误: {str(e)}")
-                time.sleep(1)
+                # 可中断等待代替固定sleep
+                self.stop_event.wait(1)
 
-            time.sleep(60)
+            if self.stop_event.wait(wait_time if 'wait_time' in locals() else 0.0):
+                break
 
     def start_broadcasting(self):
         self.running = True
-        self.broadcast_thread = threading.Thread(target=self._broadcast_loop)
+        self.stop_event.clear()
+        self.broadcast_thread = threading.Thread(target=self._broadcast_loop, daemon=True)
         self.broadcast_thread.start()
 
     def stop_broadcasting(self):
         self.running = False
+        # 触发事件，唤醒所有wait，快速退出
+        self.stop_event.set()
         if self.broadcast_thread:
-            self.broadcast_thread.join()
+            self.broadcast_thread.join(timeout=2)
+            self.broadcast_thread = None
 
 

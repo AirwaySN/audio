@@ -7,7 +7,7 @@ import re
 from pynput import keyboard
 from radio import ATCRadioClient, server
 from settings import Settings, SettingsDialog
-# from ATIS import ATISBroadcaster
+from ATIS import ATISBroadcaster
 from PyQt6.QtGui import QIcon
 
 icon_path = r".\favicon.ico"
@@ -204,21 +204,21 @@ class ATCWindow(QMainWindow):
         self.disconnect_btn = QPushButton('断开连接')
         self.disconnect_btn.clicked.connect(self.disconnect_radio)
         
-        # # ATIS按钮
-        # atis_layout = QHBoxLayout()
-        # self.atis_btn1 = QPushButton('添加情报通播1')
-        # self.atis_btn2 = QPushButton('添加情报通播2')
-        # self.atis_btn1.clicked.connect(lambda: self.toggle_atis('1'))
-        # self.atis_btn2.clicked.connect(lambda: self.toggle_atis('2'))
-        # atis_layout.addWidget(self.atis_btn1)
-        # atis_layout.addWidget(self.atis_btn2)
+        # ATIS按钮
+        atis_layout = QHBoxLayout()
+        self.atis_btn1 = QPushButton('添加情报通播1')
+        self.atis_btn2 = QPushButton('添加情报通播2')
+        self.atis_btn1.clicked.connect(lambda: self.toggle_atis('1'))
+        self.atis_btn2.clicked.connect(lambda: self.toggle_atis('2'))
+        atis_layout.addWidget(self.atis_btn1)
+        atis_layout.addWidget(self.atis_btn2)
         
         # 添加所有部件
         layout.addLayout(top_bar)
         layout.addLayout(ptt_layout)
         layout.addWidget(self.ptt_button)
         layout.addWidget(self.comm_status_label)
-        # layout.addLayout(atis_layout)  # 添加ATIS按钮
+        layout.addLayout(atis_layout)  # 添加ATIS按钮
         layout.addWidget(self.disconnect_btn)
 
     def setup_keyboard_hook(self):
@@ -371,18 +371,18 @@ class ATCWindow(QMainWindow):
                     
                     self.atis_clients[atis_id] = client
 
-                    # try:
-                    #     broadcaster = ATISBroadcaster(chinese_text, english_text, client)
-                    #     broadcaster.start_broadcasting()
-                    #     self.atis_broadcasters[atis_id] = broadcaster
-                    # except Exception as e:
-                    #     client.stop()
-                    #     del self.atis_clients[atis_id]
-                    #     raise Exception(f"ATIS广播器启动失败: {str(e)}")
+                    try:
+                        broadcaster = ATISBroadcaster(chinese_text, english_text, client)
+                        broadcaster.start_broadcasting()
+                        self.atis_broadcasters[atis_id] = broadcaster
+                    except Exception as e:
+                        client.stop()
+                        del self.atis_clients[atis_id]
+                        raise Exception(f"ATIS广播器启动失败: {str(e)}")
                     
-                    # self.atis_status[atis_id] = True
-                    # btn = self.atis_btn1 if atis_id == '1' else self.atis_btn2
-                    # btn.setText(f'停止情报通播{atis_id}')
+                    self.atis_status[atis_id] = True
+                    btn = self.atis_btn1 if atis_id == '1' else self.atis_btn2
+                    btn.setText(f'停止情报通播{atis_id}')
                     
                 except Exception as e:
                     QMessageBox.critical(self, '错误', f'启动ATIS失败: {str(e)}')
