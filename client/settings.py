@@ -18,6 +18,9 @@ class Settings:
         self.speaker_volume = 100
         self.input_device_index = None
         self.output_device_index = None
+        # 新增：账号与密码
+        self.username = ""
+        self.password = ""
         self.load_settings()
 
     def load_settings(self):
@@ -32,7 +35,14 @@ class Settings:
                     self.speaker_volume = data.get("speaker_volume", 100)
                     self.input_device_index = data.get("input_device_index", None)
                     self.output_device_index = data.get("output_device_index", None)
-                print(f"[DEBUG-Settings] 设置加载成功: {data}")
+                    # 新增：读取账号与密码
+                    self.username = data.get("username", "")
+                    self.password = data.get("password", "")
+                # 调整调试输出，隐藏密码
+                safe = dict(data)
+                if "password" in safe:
+                    safe["password"] = "***"
+                print(f"[DEBUG-Settings] 设置加载成功: {safe}")
         except Exception as e:
             print(f"[DEBUG-Settings] 加载设置失败: {e}")
 
@@ -44,9 +54,15 @@ class Settings:
                 "mic_volume": self.mic_volume,
                 "speaker_volume": self.speaker_volume,
                 "input_device_index": self.input_device_index,
-                "output_device_index": self.output_device_index
+                "output_device_index": self.output_device_index,
+                # 新增：保存账号与密码
+                "username": self.username,
+                "password": self.password
             }
-            print(f"[DEBUG-Settings] 保存设置: {data}")
+            # 调整调试输出，隐藏密码
+            safe = dict(data)
+            safe["password"] = "***" if safe.get("password") else ""
+            print(f"[DEBUG-Settings] 保存设置: {safe}")
             with open(self.config_file, "w") as f:
                 json.dump(data, f)
             print("[DEBUG-Settings] 设置保存成功")

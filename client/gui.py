@@ -181,7 +181,7 @@ class RadioGUI(QMainWindow):
             print(f"- pygame.display.get_init(): {pygame.display.get_init()}")
             print(f"- pygame.joystick.get_init(): {pygame.joystick.get_init()}")
             
-        self.setWindowTitle("无线电通话")
+        self.setWindowTitle("无线电-Airwaysn")
         self.setMinimumSize(300, 200)
         
         self.stacked_widget = QStackedWidget()
@@ -194,6 +194,15 @@ class RadioGUI(QMainWindow):
         # 连接登录按钮事件
         self.login_window.login_button.clicked.connect(self.handle_login)
         
+        # 新增：加载已有设置并自动填充账号密码
+        from settings import Settings
+        self.settings = Settings()
+        try:
+            self.login_window.username_input.setText(self.settings.username or "")
+            self.login_window.password_input.setText(self.settings.password or "")
+        except Exception as e:
+            print(f"[DEBUG-GUI] 自动填充账号失败: {e}")
+
         self.radio_client = None
         self.main_window = None
         self.client_thread = None
@@ -240,6 +249,13 @@ class RadioGUI(QMainWindow):
         try:
             print("连接成功，正在初始化主窗口...")
             self.login_window.clear_error()
+            # 新增：登录成功后保存账号与密码到设置文件
+            try:
+                if self.radio_client and self.radio_client.settings:
+                    self.radio_client.settings.save_settings()
+            except Exception as e:
+                print(f"[DEBUG-GUI] 登录后保存设置失败: {e}")
+
             # 创建主窗口
             self.main_window = MainWindow(self.radio_client)
             self.stacked_widget.addWidget(self.main_window)
@@ -276,7 +292,14 @@ class RadioGUI(QMainWindow):
         
         try:
             print("正在初始化 MumbleRadioClient...")
-            self.radio_client = MumbleRadioClient("hjdczy.top", username, password)
+            # 新增：把输入的账号密码写入现有 Settings，并传入客户端
+            try:
+                self.settings.username = username or ""
+                self.settings.password = password or ""
+            except Exception as e:
+                print(f"[DEBUG-GUI] 写入账号到设置失败: {e}")
+
+            self.radio_client = MumbleRadioClient("118.153.226.153", username, password, settings=self.settings)
             print("MumbleRadioClient 初始化完成")
             
             # 设置连接成功回调

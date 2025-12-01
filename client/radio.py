@@ -31,7 +31,7 @@ def suppress_mumble_errors(func):
     return wrapper
 
 class MumbleRadioClient:
-    def __init__(self, server_host, username, password=""):
+    def __init__(self, server_host, username, password="", settings=None):
         # SimConnect 初始化
         self.simconnect = SimConnect()
         self.aq = AircraftRequests(self.simconnect, _time=2000)
@@ -44,10 +44,19 @@ class MumbleRadioClient:
         self.is_talking = False
         self.on_ptt_change = None
         
-        # 添加设置支持
-        from settings import Settings
-        self.settings = Settings()
-        
+        # 添加设置支持（改为可注入同一份 Settings）
+        if settings is not None:
+            self.settings = settings
+        else:
+            from settings import Settings
+            self.settings = Settings()
+        # 同步当前登录账号和密码到设置
+        try:
+            self.settings.username = username or ""
+            self.settings.password = password or ""
+        except Exception as e:
+            print(f"[DEBUG] 同步账号到设置失败: {e}")
+
         # 确保音量在合理范围内
         self.settings.mic_volume = max(0, min(200, self.settings.mic_volume))
         self.settings.speaker_volume = max(0, min(200, self.settings.speaker_volume))

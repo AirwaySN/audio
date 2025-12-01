@@ -63,4 +63,16 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['favicon.ico'],
+    exclude_binaries=True,  # 切换为单目录（不内嵌依赖）
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,          # 启用UPX
+    upx_exclude=[],
+    name='radio_gui',  # 输出目录名
 )
